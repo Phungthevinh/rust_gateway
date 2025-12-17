@@ -1,0 +1,129 @@
+rust-gateway/
+├── Cargo.toml
+└── src/
+      ├── main.rs                # entrypoint
+      ├── lib.rs                 # expose app cho test / reuse
+      │
+      ├── app/                   # composition root
+      │   ├── mod.rs
+      │   ├── router.rs          # build axum router
+      │   └── lifecycle.rs       # startup / shutdown hooks
+      │
+      ├── config/                # application configuration
+      │   ├── mod.rs
+      │   └── settings.rs
+      │
+      ├── state/                 # shared application state
+      │   ├── mod.rs
+      │   └── app_state.rs
+      │
+      ├── domains/               # business domains
+      │   ├── proxy/
+      │   │   ├── mod.rs
+      │   │   ├── handler.rs     # HTTP handlers
+      │   │   ├── forward.rs     # forward request
+      │   │   ├── rewrite.rs     # path / header rewrite
+      │   │   └── model.rs
+      │   │
+      │   ├── rate_limit/
+      │   │   ├── mod.rs
+      │   │   ├── middleware.rs
+      │   │   ├── service.rs
+      │   │   └── model.rs
+      │   │
+      │   ├── health/
+      │   │   ├── mod.rs
+      │   │   └── handler.rs
+      │   │
+      │   └── auth/              # future: jwt, api key, oauth
+      │       ├── mod.rs
+      │       ├── middleware.rs
+      │       └── service.rs
+      │
+      ├── infra/                 # infrastructure & external systems
+      │   ├── redis/
+      │   │   ├── mod.rs
+      │   │   ├── client.rs
+      │   │   └── scripts/
+      │   │       └── rate_limiter.lua
+      │   │
+      │   ├── http/
+      │   │   ├── mod.rs
+      │   │   └── client.rs
+      │   │
+      │   └── metrics/
+      │       ├── mod.rs
+      │       └── prometheus.rs
+      │
+      ├── middleware/             # cross-domain middleware
+      │   ├── mod.rs
+      │   ├── request_id.rs
+      │   └── validation.rs
+      │
+      ├── error/
+      │   ├── mod.rs
+      │   └── gateway_error.rs
+      │
+      └── utils/
+          ├── mod.rs
+          └── tracing.rs
+
+
+
+
+| Mục                 | Công nghệ      |
+| ------------------- | -------------- |
+| Async runtime       | tokio          |v
+| Web framework       | axum           |v
+| Middleware          | tower          |v
+| HTTP client (proxy) | reqwest        |v
+| Redis               | deadpool-redis |v
+| Logging             | tracing        |x
+| Config              | dotenvy        |x
+| Serialization       | serde          |x
+
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+thư viện này dùng để viết các ứng ứng dụng bất đồng bộ
+
+axum = "0.7"
+thư viện này là 1 khung ứng dụng web
+
+tower = "0.4"
+dùng để phát triển các hệ thống mạng Áp dụng các mẫu thiết kế mạng như Circuit Breaker, Rate Limiting, Retry... thông qua các layer
+
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+dotenvy = "0.15"
+deadpool-redis = "0.14"
+uuid = { version = "1", features = ["v4"] }
+
+Client
+ → Rust Gateway
+   → rate_limit(ip)
+   → rate_limit(phone)
+   → proxy
+ → Node.js
+   → generate OTP
+   → store Redis
+ → Rust
+ → Client
+
+
+
+
+Nếu chỉ làm rate limit OTP theo số điện thoại, nên tập trung:
+
+| Mục tiêu      | Thư mục                | File                     |
+| ------------- | ---------------------- | ------------------------ |
+| Business rule | `domains/rate_limit/`  | `model.rs`, `service.rs` |
+| Chặn request  | `domains/rate_limit/`  | `middleware.rs`          |
+| Lưu state     | `infra/redis/`         | `client.rs`              |
+| Atomic limit  | `infra/redis/scripts/` | `rate_limiter.lua`       |
+| Gắn vào API   | `app/`                 | `router.rs`              |
+| Trả lỗi       | `error/`               | `gateway_error.rs`       |
+
