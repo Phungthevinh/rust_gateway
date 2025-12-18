@@ -1,37 +1,50 @@
+//thư viện
+use redis::{Client, TypedCommands};
+use anyhow::{Ok, Result};
+use chrono::{DateTime, TimeZone, Utc};
+
 //các file model
-use crate::domains::model::RateLimitRule;
+use crate::domains::rate_limit::model::RateLimitRule;
 
-//các thư viện
-use deadpool_redis::Pool;
-
-pub struct RateLimiterService {
-    redis: deadpool_redis::Pool,
+pub trait RateLimiter  {
+    async fn allow(&self, key: &str, rule: &RateLimitRule) -> Result<bool>;
 }
 
-// định nghĩa 1 trait cho enum
-pub trait RateLimiter {
-    async fn allow(&self, key: &str, rule: &RateLimitRule) -> anyhow::Result<bool>;
-}
+pub struct RateLimiterService;
 
-//xử lý logic ở đây chúng tôi định cho
-//FixedWindow sẽ là 5 request cho 60s
-//SlidingWindow sẽ là 200 request cho 60 giây
+impl RateLimiterService {
+    async fn allow_fixed_window(&self, key: &str, max: &u32, window: &u64) -> Result<bool> {
+        let client = redis::Client::open("redis://127.0.0.1/")?;
+        let mut con = client.get_connection()?;
+        let now = Utc::now().timestamp() as u64;
+        let window_start = now / window;
+        let redis_key = format!("ratelimit{}:{}", key, window_start);
 
-
-#[async_trait::async_trait]
-impl RateLimiter for RateLimiterService{
-    //nhiệm vụ của hàm này là cho phép gửi otp hoặc không
-    //trả lỗi gì, nếu bị block
-    //gọi redis
-    async fn allow(&self, key: &str, rule: &RateLimitRule) -> anyhow::Result<bool>{
-        match self{
-            RateLimitRule::Unlimited => ok(true),
-            RateLimitRule::FixedWindow{}=>{
-
-            }
-            RateLimitRule::SlidingWindow{}=>{
-                
-            }
+        let count:u32 = redis::cmd("INCR").arg(&redis_key).query(&mut con)?;
+        
+        if count == 1{
+            redis::cmd("EXPIRE").arg(&redis_key).query::<()>(&mut con)?;
         }
+        Ok(count <= *max)
     }
 }
+
+impl RateLimiter for RateLimiterService {
+    async fn allow(&self, key: &str, rule: &RateLimitRule) -> Result<bool> {
+        match rule {
+            RateLimitRule::Unlimited => Ok(true),
+            RateLimitRule::FixedWindow { max_requests, window_seconds } => {
+                self.allow_fixed_window(key, &max_requests, &window_seconds).await
+            },
+            RateLimitRule::SlidingWindow { max_requests, window_seconds } => {
+                Ok(true)
+            },
+        };
+        Ok(true)
+    }
+}
+
+
+
+
+

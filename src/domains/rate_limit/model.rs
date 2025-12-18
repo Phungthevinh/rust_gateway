@@ -5,6 +5,7 @@ pub struct RateLimitEntry {
     pub rule: RateLimitRule, // quy tắc quy định cho RateLimitRule
 }
 
+#[derive(Clone)]
 pub enum RateLimitRule {
     Unlimited,
     // dùng để chia thời gian cho mỗi requert gửi đi
